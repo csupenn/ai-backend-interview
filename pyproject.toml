@@ -1,0 +1,18 @@
+[project]
+name = "ai-backend-interview"
+version = "0.1.0"
+description = "Minimal, interview-ready FastAPI backend scaffolding"
+requires-python = ">=3.12"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
