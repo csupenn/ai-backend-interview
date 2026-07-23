@@ -3,7 +3,7 @@
 _Written 2026-07-23, after the 2026-07-21 exercise. Scope: bring the delivered
 artifact into full conformance with the written spec
 (`docs/prompts/02a-mvp-core.md`, `02b-doc-update.md`) and the state machine in
-`geico-ai-coding-interview-07212026.md`._
+`00-geico-ai-coding-interview-07212026.md`._
 
 The interview deliverable was built in ~40 minutes and works. This plan is the
 follow-up pass I'd have done with another hour: close the gap between what the

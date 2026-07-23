@@ -148,8 +148,10 @@ the implementation are checked in:
 | `docs/prompts/01-project-scaffolding.md` | Pre-built scaffold (venv, FastAPI, ruff, `/health`) |
 | `docs/prompts/02a-mvp-core.md` | Core MVP: create / retrieve / evaluate / promote + guard |
 | `docs/prompts/02b-doc-update.md` | Follow-on: doc update path + evaluation reset |
-| `docs/notes/geico-ai-coding-interview-07212026.md` | Session notes — requirements Q&A, state machine, named tradeoffs |
-| `docs/notes/post-interview-hardening-plan.md` | The follow-up conformance pass, and why each hole was closed or deferred |
+| `docs/notes/00-geico-ai-coding-interview-07212026.md` | Session notes — requirements Q&A, state machine, named tradeoffs |
+| `docs/notes/01-post-interview-hardening-plan.md` | The follow-up conformance pass, and why each hole was closed or deferred |
+| `docs/notes/02-llm-evaluator-design-brief.md` | How the stubbed evaluator would be designed for real — authority model, failure modes, build order |
+| `docs/notes/03-design-doc-lifecycle.md` | Why approvals bind to immutable revisions, and why doc drift is measured rather than gated |
 
 ## Current Limitations
 
@@ -169,7 +171,8 @@ Deliberate MVP tradeoffs, not oversights:
 - **Editing a promoted system's doc is not blocked**, so an `IN-PRODUCTION`
   system can end up with a `NOT-EVALUATED` doc. The fix is doc versioning, with
   the approved revision pinned to the release, rather than a guard on the edit.
-  Pinned by `test_editing_doc_after_promotion_leaves_stale_production_system`.
+  Pinned by `test_editing_doc_after_promotion_leaves_stale_production_system`;
+  reasoning in `docs/notes/03-design-doc-lifecycle.md`.
 - **Double-promote succeeds idempotently** (`200`), rather than returning a
   conflict. Pinned by `test_promote_is_idempotent_when_already_in_production`.
 - No database, migrations, or Docker. `services/` and `repositories/` remain

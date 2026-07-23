@@ -165,7 +165,7 @@ def test_rejected_doc_can_be_updated_reevaluated_and_promoted() -> None:
 
 # --------------------------------------------------------------------------- #
 # Characterization tests: these pin *known limitations*, not desired behavior.
-# See docs/notes/post-interview-hardening-plan.md.
+# See docs/notes/01-post-interview-hardening-plan.md.
 # --------------------------------------------------------------------------- #
 def test_promote_is_idempotent_when_already_in_production() -> None:
     created = _create_system(content=APPROVABLE_DOC)

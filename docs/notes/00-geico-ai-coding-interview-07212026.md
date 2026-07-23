@@ -73,7 +73,7 @@ the moment of promotion*. Not continuously — see below.
 
 Two live in the shipped code. Both are good things to say out loud rather than
 be caught on. Both are now pinned by characterization tests — see
-`post-interview-hardening-plan.md`.
+`01-post-interview-hardening-plan.md`.
 
 1. **`PUT /design-doc` has no status guard.** Editing the doc on an
    already-promoted system leaves an `IN-PRODUCTION` system with a
