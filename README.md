@@ -26,6 +26,38 @@ Storage is an in-memory dictionary and the entire implementation lives in
 - A system can be promoted to `IN-PRODUCTION` **only** when its doc is
   `APPROVED`; otherwise promotion returns `409`.
 
+## State Machine
+
+Two orthogonal machines — the doc's evaluation status, and the system's status
+gated on it.
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    state "DesignDoc.evaluation_status" as D {
+        [*] --> NOT_EVALUATED
+        NOT_EVALUATED --> APPROVED: evaluate / pass
+        NOT_EVALUATED --> REJECTED: evaluate / fail
+        REJECTED --> NOT_EVALUATED: PUT design-doc
+        APPROVED --> NOT_EVALUATED: PUT design-doc
+    }
+    state "System.status" as S {
+        [*] --> IN_DEVELOPMENT
+        IN_DEVELOPMENT --> IN_PRODUCTION: promote [doc == APPROVED]
+    }
+```
+
+| From | Event | Guard | To | HTTP |
+| --- | --- | --- | --- | --- |
+| any doc state | `PUT /design-doc` | — | doc → `NOT-EVALUATED`, feedback cleared | 200 |
+| any doc state | `POST /evaluate` | — | `APPROVED` \| `REJECTED` | 200 |
+| `IN-DEVELOPMENT` | `POST /promote` | doc `APPROVED` | `IN-PRODUCTION` | 200 |
+| `IN-DEVELOPMENT` | `POST /promote` | doc ≠ `APPROVED` | no change | 409 |
+| — | any, unknown id | — | — | 404 |
+
+**Invariant:** `status == IN-PRODUCTION` ⇒ `evaluation_status == APPROVED` *at
+the moment of promotion* — see Current Limitations.
+
 ## API
 
 | Method | Path                                     | Description                                  |
@@ -65,6 +97,9 @@ app/
 tests/
   test_health.py      Test for the /health endpoint
   test_systems.py     Tests for the system create/evaluate/promote flow
+docs/
+  prompts/            The prompts used to generate this implementation
+  notes/              Session notes: requirements Q&A, state machine, tradeoffs
 requirements.txt
 pyproject.toml        Ruff and pytest configuration
 .env.example
@@ -103,10 +138,36 @@ ruff check .
 ruff format .
 ```
 
+## Documentation
+
+This was built as a time-boxed, AI-assisted exercise. The prompts that produced
+the implementation are checked in:
+
+| Document | Contents |
+| --- | --- |
+| `docs/prompts/01-project-scaffolding.md` | Pre-built scaffold (venv, FastAPI, ruff, `/health`) |
+| `docs/prompts/02a-mvp-core.md` | Core MVP: create / retrieve / evaluate / promote + guard |
+| `docs/prompts/02b-doc-update.md` | Follow-on: doc update path + evaluation reset |
+| `docs/notes/` | Session notes — requirements Q&A, state machine, named tradeoffs |
+
 ## Current Limitations
 
-- In-memory storage only — data is lost when the server restarts, and system
-  ids are valid only for the life of the process.
-- Document evaluation is a length-based stub, not a real LLM call.
-- No authentication, authorization, database, migrations, or Docker.
-- `services/` and `repositories/` remain empty scaffolding.
+Deliberate MVP tradeoffs, not oversights:
+
+- **In-memory storage only** — data is lost on restart, and system ids are
+  valid only for the life of the process. A real governance platform needs
+  durable storage plus an immutable audit trail of who approved what, when,
+  and why.
+- **Evaluation is a length-based stub**, not a real LLM call. It sits behind
+  the `evaluate_design_doc()` seam so an LLM or policy engine can be swapped in
+  without changing the API contract. Productionizing it would need prompt/
+  version pinning for reproducible verdicts, stored rationale, human override,
+  and prompt-injection defense — the doc is user-supplied text an LLM reads.
+- **No authn/authz** — in particular no separation of duties between the
+  author, the evaluator, and whoever promotes.
+- **Editing a promoted system's doc is not blocked**, so an `IN-PRODUCTION`
+  system can end up with a `NOT-EVALUATED` doc. The fix is doc versioning, with
+  the approved revision pinned to the release, rather than a guard on the edit.
+- **Double-promote is unspecified.** It currently succeeds idempotently.
+- No database, migrations, or Docker. `services/` and `repositories/` remain
+  empty scaffolding.

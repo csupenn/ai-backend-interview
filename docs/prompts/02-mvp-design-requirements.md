@@ -1,9 +1,3 @@
-Implete the FastAPI request models, enums, and endpoints for the following MVP concept.
-
-- keep the implementation in app/main.py
-- use an in memory dictonary
-- do not add a database or additional architectur layer
-
 
 # Problem Statement  
 
