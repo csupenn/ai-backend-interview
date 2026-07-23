@@ -5,3 +5,7 @@ __pycache__/
 .env
 *.pyc
 docs/personal-notes/
+
+# AI tooling — project config is committed; personal overrides are not
+CLAUDE.local.md
+.claude/settings.local.json
