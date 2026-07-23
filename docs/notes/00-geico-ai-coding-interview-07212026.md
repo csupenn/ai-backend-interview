@@ -46,23 +46,40 @@ stateDiagram-v2
         [*] --> NOT_EVALUATED
         NOT_EVALUATED --> APPROVED: evaluate / pass
         NOT_EVALUATED --> REJECTED: evaluate / fail
+        REJECTED --> APPROVED: re-evaluate / pass
+        REJECTED --> REJECTED: re-evaluate / fail
+        APPROVED --> REJECTED: re-evaluate / fail
+        APPROVED --> APPROVED: re-evaluate / pass
         REJECTED --> NOT_EVALUATED: PUT design-doc
         APPROVED --> NOT_EVALUATED: PUT design-doc
     }
     state "System.status" as S {
         [*] --> IN_DEVELOPMENT
         IN_DEVELOPMENT --> IN_PRODUCTION: promote [doc == APPROVED]
+        IN_PRODUCTION --> IN_PRODUCTION: promote [doc == APPROVED]
     }
 ```
 
-| From | Event | Guard | To | HTTP |
-| --- | --- | --- | --- | --- |
-| any doc state | `PUT /design-doc` | — | doc → `NOT-EVALUATED`, feedback cleared | 200 |
-| any doc state | `POST /evaluate` | — | `APPROVED` \| `REJECTED` | 200 |
-| `IN-DEVELOPMENT` | `POST /promote` | doc `APPROVED` | `IN-PRODUCTION` | 200 |
-| `IN-DEVELOPMENT` | `POST /promote` | doc ≠ `APPROVED` | no change | 409 |
-| `IN-PRODUCTION` | `POST /promote` | — | no change | 200 (idempotent) |
-| — | any, unknown id | — | — | 404 |
+`evaluate` has **no guard** — it is accepted from any doc state and from any
+system status, and simply recomputes the verdict. With the deterministic stub
+the re-evaluate edges are self-loops in practice; with a sampled LLM verdict
+`REJECTED → APPROVED` on unchanged content becomes reachable, which is the
+retry-until-approved hole.
+
+| System status | Doc state | Event | Guard | Result | HTTP |
+| --- | --- | --- | --- | --- | --- |
+| any | any | `PUT /design-doc` | — | doc → `NOT-EVALUATED`, feedback cleared | 200 |
+| any | any | `POST /evaluate` | — | verdict recomputed → `APPROVED` \| `REJECTED` | 200 |
+| `IN-DEVELOPMENT` | `APPROVED` | `POST /promote` | — | → `IN-PRODUCTION` | 200 |
+| `IN-DEVELOPMENT` | ≠ `APPROVED` | `POST /promote` | — | no change | 409 |
+| `IN-PRODUCTION` | `APPROVED` | `POST /promote` | — | no change (idempotent) | 200 |
+| `IN-PRODUCTION` | ≠ `APPROVED` | `POST /promote` | — | no change | **409** |
+| any | any | any, unknown id | — | — | 404 |
+| — | — | invalid body | — | — | 422 |
+
+**`promote` reads only the doc; it never checks `System.status`.** That is why
+the last row exists: a system already in production gets "cannot be promoted"
+if its doc has since been edited or re-evaluated to anything but `APPROVED`.
 
 **Invariant:** `status == IN-PRODUCTION` ⇒ `evaluation_status == APPROVED` *at
 the moment of promotion*. Not continuously — see below.
@@ -71,20 +88,29 @@ the moment of promotion*. Not continuously — see below.
 
 ## Known holes, as deliberate choices
 
-Two live in the shipped code. Both are good things to say out loud rather than
-be caught on. Both are now pinned by characterization tests — see
-`01-post-interview-hardening-plan.md`.
+All of these live in the shipped code and are pinned by characterization tests
+— see `01-post-interview-hardening-plan.md`. All share one root cause: **no
+operation except `promote` ever reads `System.status`**, so the doc lifecycle
+runs independently of whether the system is live.
 
 1. **`PUT /design-doc` has no status guard.** Editing the doc on an
    already-promoted system leaves an `IN-PRODUCTION` system with a
    `NOT-EVALUATED` doc. Real fix: version the doc and pin the approved revision
    to the release, so edits create a new draft instead of invalidating prod.
-2. **Double-promote returns an idempotent 200.** 200 vs. 409 is a real choice;
-   idempotent is the right one, since promote is a desired-state operation.
+2. **`IN-PRODUCTION` + `REJECTED` is reachable.** Promote, edit the doc, then
+   re-evaluate: a live system whose design doc has been actively rejected.
+   Strictly worse than hole 1 and reached the same way.
+3. **`evaluate` is unguarded.** Allowed from any doc state and any system
+   status, recomputing the verdict each time. Benign with a deterministic stub;
+   with a sampled LLM verdict it is the retry-until-approved path.
+4. **Double-promote is idempotent only while the doc stays `APPROVED`.** It
+   returns 200 in that case — the right choice, since promote is a
+   desired-state operation. But from hole 2 it returns 409, which reads as
+   "cannot be promoted" about a system that is already in production.
 
 ## Deferred by design (name these before being asked)
 
-- **Evaluator is a stub** — length heuristic behind `_evaluate_design_doc()`.
+- **Evaluator is a stub** — length heuristic behind `evaluate_design_doc()`.
   Deliberate: deterministic and testable. The seam swaps for a real LLM or
   policy engine with no API change.
 - **Persistence + audit log** — in-memory is MVP-only. In a governance

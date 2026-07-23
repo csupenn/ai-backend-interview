@@ -178,6 +178,47 @@ def test_promote_is_idempotent_when_already_in_production() -> None:
     assert response.json()["status"] == "IN-PRODUCTION"
 
 
+def test_in_production_system_can_reach_rejected_doc() -> None:
+    """Known limitation: a live system can hold an actively rejected doc.
+
+    Reached by promoting, editing the doc, then re-evaluating. Worse than the
+    NOT-EVALUATED case below and reached the same way — nothing but `promote`
+    ever reads System.status.
+    """
+    created = _create_system(content=APPROVABLE_DOC)
+    sid = created["id"]
+    client.post(f"/systems/{sid}/design-doc/evaluate")
+    client.post(f"/systems/{sid}/promote")
+
+    client.put(f"/systems/{sid}/design-doc", json={"content": SHORT_DOC})
+    response = client.post(f"/systems/{sid}/design-doc/evaluate")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "IN-PRODUCTION"
+    assert response.json()["design_doc"]["evaluation_status"] == "REJECTED"
+
+
+def test_promote_on_production_system_with_rejected_doc_returns_409() -> None:
+    """Known limitation: promote reads the doc, never the system's status.
+
+    So an already-promoted system is told it "cannot be promoted" once its doc
+    is no longer APPROVED — the double-promote idempotency only holds while the
+    doc stays approved.
+    """
+    created = _create_system(content=APPROVABLE_DOC)
+    sid = created["id"]
+    client.post(f"/systems/{sid}/design-doc/evaluate")
+    client.post(f"/systems/{sid}/promote")
+    client.put(f"/systems/{sid}/design-doc", json={"content": SHORT_DOC})
+    client.post(f"/systems/{sid}/design-doc/evaluate")
+
+    response = client.post(f"/systems/{sid}/promote")
+
+    assert response.status_code == 409
+    # Still in production — the 409 is about the doc, not the system.
+    assert client.get(f"/systems/{sid}").json()["status"] == "IN-PRODUCTION"
+
+
 def test_editing_doc_after_promotion_leaves_stale_production_system() -> None:
     """Known limitation: a promoted system can end up with an unevaluated doc.
 

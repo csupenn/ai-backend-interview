@@ -20,7 +20,7 @@ survive an edit.
 
 | From | Event | Guard | To | HTTP |
 | --- | --- | --- | --- | --- |
-| any doc state | `PUT /design-doc` | — | `NOT-EVALUATED`, feedback cleared | 200 |
+| any doc state, any system status | `PUT /design-doc` | — | `NOT-EVALUATED`, feedback cleared | 200 |
 | — | unknown id | — | — | 404 |
 
 ## Tests

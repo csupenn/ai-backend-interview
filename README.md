@@ -38,22 +38,34 @@ stateDiagram-v2
         [*] --> NOT_EVALUATED
         NOT_EVALUATED --> APPROVED: evaluate / pass
         NOT_EVALUATED --> REJECTED: evaluate / fail
+        REJECTED --> APPROVED: re-evaluate / pass
+        REJECTED --> REJECTED: re-evaluate / fail
+        APPROVED --> REJECTED: re-evaluate / fail
+        APPROVED --> APPROVED: re-evaluate / pass
         REJECTED --> NOT_EVALUATED: PUT design-doc
         APPROVED --> NOT_EVALUATED: PUT design-doc
     }
     state "System.status" as S {
         [*] --> IN_DEVELOPMENT
         IN_DEVELOPMENT --> IN_PRODUCTION: promote [doc == APPROVED]
+        IN_PRODUCTION --> IN_PRODUCTION: promote [doc == APPROVED]
     }
 ```
 
-| From | Event | Guard | To | HTTP |
+| System status | Doc state | Event | Result | HTTP |
 | --- | --- | --- | --- | --- |
-| any doc state | `PUT /design-doc` | — | doc → `NOT-EVALUATED`, feedback cleared | 200 |
-| any doc state | `POST /evaluate` | — | `APPROVED` \| `REJECTED` | 200 |
-| `IN-DEVELOPMENT` | `POST /promote` | doc `APPROVED` | `IN-PRODUCTION` | 200 |
-| `IN-DEVELOPMENT` | `POST /promote` | doc ≠ `APPROVED` | no change | 409 |
-| — | any, unknown id | — | — | 404 |
+| any | any | `PUT /design-doc` | doc → `NOT-EVALUATED`, feedback cleared | 200 |
+| any | any | `POST /evaluate` | verdict recomputed → `APPROVED` \| `REJECTED` | 200 |
+| `IN-DEVELOPMENT` | `APPROVED` | `POST /promote` | → `IN-PRODUCTION` | 200 |
+| `IN-DEVELOPMENT` | ≠ `APPROVED` | `POST /promote` | no change | 409 |
+| `IN-PRODUCTION` | `APPROVED` | `POST /promote` | no change (idempotent) | 200 |
+| `IN-PRODUCTION` | ≠ `APPROVED` | `POST /promote` | no change | 409 |
+| any | any | any, unknown id | — | 404 |
+| — | — | invalid body | — | 422 |
+
+`evaluate` is unguarded — accepted from any doc state and any system status,
+recomputing the verdict each time. `promote` reads only the doc and never
+checks `System.status`.
 
 **Invariant:** `status == IN-PRODUCTION` ⇒ `evaluation_status == APPROVED` *at
 the moment of promotion* — see Current Limitations.
@@ -96,10 +108,12 @@ app/
   repositories/       Empty scaffolding
 tests/
   test_health.py      Test for the /health endpoint
-  test_systems.py     Tests for the system create/evaluate/promote flow
+  test_systems.py     Create/evaluate/promote flow, plus characterization
+                      tests pinning known limitations (see below)
 docs/
-  prompts/            The prompts used to generate this implementation
-  notes/              Session notes: requirements Q&A, state machine, tradeoffs
+  prompts/            The prompts that produced the code — treated as the spec
+  notes/              Session record and design reasoning (00–03)
+CLAUDE.md             Working context for AI-assisted sessions
 requirements.txt
 pyproject.toml        Ruff and pytest configuration
 .env.example
@@ -141,7 +155,8 @@ ruff format .
 ## Documentation
 
 This was built as a time-boxed, AI-assisted exercise. The prompts that produced
-the implementation are checked in:
+the implementation are checked in, along with the session record and the design
+reasoning that followed from it:
 
 | Document | Contents |
 | --- | --- |
@@ -152,6 +167,11 @@ the implementation are checked in:
 | `docs/notes/01-post-interview-hardening-plan.md` | The follow-up conformance pass, and why each hole was closed or deferred |
 | `docs/notes/02-llm-evaluator-design-brief.md` | How the stubbed evaluator would be designed for real — authority model, failure modes, build order |
 | `docs/notes/03-design-doc-lifecycle.md` | Why approvals bind to immutable revisions, and why doc drift is measured rather than gated |
+
+`CLAUDE.md` at the repo root carries the working context for AI-assisted
+sessions — commands, scope constraints, conventions, and the behaviors that
+must not be "fixed" without reading the reasoning first. The prompts are the
+specification: where the code and a prompt disagree, the code drifted.
 
 ## Current Limitations
 
@@ -168,12 +188,23 @@ Deliberate MVP tradeoffs, not oversights:
   and prompt-injection defense — the doc is user-supplied text an LLM reads.
 - **No authn/authz** — in particular no separation of duties between the
   author, the evaluator, and whoever promotes.
-- **Editing a promoted system's doc is not blocked**, so an `IN-PRODUCTION`
-  system can end up with a `NOT-EVALUATED` doc. The fix is doc versioning, with
-  the approved revision pinned to the release, rather than a guard on the edit.
-  Pinned by `test_editing_doc_after_promotion_leaves_stale_production_system`;
-  reasoning in `docs/notes/03-design-doc-lifecycle.md`.
-- **Double-promote succeeds idempotently** (`200`), rather than returning a
-  conflict. Pinned by `test_promote_is_idempotent_when_already_in_production`.
+- **No operation except `promote` reads `System.status`**, so the doc lifecycle
+  runs independently of whether the system is live. Three consequences, all
+  pinned by characterization tests and all fixed the same way — doc versioning
+  with the approved revision pinned to the release, rather than guards on each
+  edit (reasoning in `docs/notes/03-design-doc-lifecycle.md`):
+  - Editing a promoted system's doc is not blocked, so an `IN-PRODUCTION`
+    system can end up with a `NOT-EVALUATED` doc
+    (`test_editing_doc_after_promotion_leaves_stale_production_system`).
+  - `IN-PRODUCTION` + `REJECTED` is reachable by editing then re-evaluating
+    (`test_in_production_system_can_reach_rejected_doc`).
+  - `evaluate` is unguarded and recomputes the verdict from any state. Benign
+    with a deterministic stub; with a sampled LLM verdict this is the
+    retry-until-approved path.
+- **Double-promote is idempotent only while the doc stays `APPROVED`** — `200`
+  in that case (`test_promote_is_idempotent_when_already_in_production`), but
+  `409` once the doc is no longer approved, which reads as "cannot be promoted"
+  about an already-promoted system
+  (`test_promote_on_production_system_with_rejected_doc_returns_409`).
 - No database, migrations, or Docker. `services/` and `repositories/` remain
   empty scaffolding.

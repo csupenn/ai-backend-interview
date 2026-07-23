@@ -27,7 +27,7 @@ DesignDoc   content, evaluation_status: NOT-EVALUATED | APPROVED | REJECTED,
 
 | From | Event | Guard | To | HTTP |
 | --- | --- | --- | --- | --- |
-| any doc state | evaluate | — | `APPROVED` \| `REJECTED` + feedback | 200 |
+| any doc state, any system status | evaluate | — | verdict recomputed → `APPROVED` \| `REJECTED` + feedback | 200 |
 | `IN-DEVELOPMENT` | promote | doc `APPROVED` | `IN-PRODUCTION` | 200 |
 | `IN-DEVELOPMENT` | promote | doc ≠ `APPROVED` | no change | 409 |
 | — | any, unknown id | — | — | 404 |
@@ -37,11 +37,14 @@ Validation failures → 422 (default Pydantic behavior is fine).
 ## API
 
 ```
-POST /systems                              -> 201, creates with a design doc
-GET  /systems/{system_id}                  -> 200
-POST /systems/{system_id}/design-doc/evaluate -> 200
-POST /systems/{system_id}/promote          -> 200 | 409
+POST /systems                                 -> 201 | 422
+GET  /systems/{system_id}                     -> 200 | 404
+POST /systems/{system_id}/design-doc/evaluate -> 200 | 404
+POST /systems/{system_id}/promote             -> 200 | 409 | 404
 ```
+
+`evaluate` and `promote` take no body. `evaluate` has no guard on the current
+evaluation status — it recomputes the verdict whatever the doc's current state.
 
 ## Evaluator
 
