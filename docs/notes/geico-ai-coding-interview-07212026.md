@@ -61,7 +61,7 @@ stateDiagram-v2
 | any doc state | `POST /evaluate` | — | `APPROVED` \| `REJECTED` | 200 |
 | `IN-DEVELOPMENT` | `POST /promote` | doc `APPROVED` | `IN-PRODUCTION` | 200 |
 | `IN-DEVELOPMENT` | `POST /promote` | doc ≠ `APPROVED` | no change | 409 |
-| `IN-PRODUCTION` | `POST /promote` | — | no change | *undecided* |
+| `IN-PRODUCTION` | `POST /promote` | — | no change | 200 (idempotent) |
 | — | any, unknown id | — | — | 404 |
 
 **Invariant:** `status == IN-PRODUCTION` ⇒ `evaluation_status == APPROVED` *at
@@ -72,14 +72,15 @@ the moment of promotion*. Not continuously — see below.
 ## Known holes, as deliberate choices
 
 Two live in the shipped code. Both are good things to say out loud rather than
-be caught on.
+be caught on. Both are now pinned by characterization tests — see
+`post-interview-hardening-plan.md`.
 
-1. **`PUT /design-doc` has no status guard** (`app/main.py:106`). Editing the
-   doc on an already-promoted system leaves an `IN-PRODUCTION` system with a
+1. **`PUT /design-doc` has no status guard.** Editing the doc on an
+   already-promoted system leaves an `IN-PRODUCTION` system with a
    `NOT-EVALUATED` doc. Real fix: version the doc and pin the approved revision
    to the release, so edits create a new draft instead of invalidating prod.
-2. **Double-promote is unspecified.** 200-idempotent vs. 409 is a real choice;
-   I'd take idempotent 200, since promote is a desired-state operation.
+2. **Double-promote returns an idempotent 200.** 200 vs. 409 is a real choice;
+   idempotent is the right one, since promote is a desired-state operation.
 
 ## Deferred by design (name these before being asked)
 

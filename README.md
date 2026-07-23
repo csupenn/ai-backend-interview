@@ -65,7 +65,7 @@ the moment of promotion* — see Current Limitations.
 | GET    | `/health`                                | Health check → `{"status": "ok"}`            |
 | POST   | `/systems`                               | Create a system with a design doc (`201`)    |
 | GET    | `/systems/{system_id}`                   | Retrieve a system (`404` if unknown)         |
-| PUT    | `/systems/{system_id}/design-doc`        | Replace doc content; resets evaluation       |
+| PUT    | `/systems/{system_id}/design-doc`        | Replace doc content; resets evaluation (`404` if unknown) |
 | POST   | `/systems/{system_id}/design-doc/evaluate` | Evaluate the doc → `APPROVED` / `REJECTED` |
 | POST   | `/systems/{system_id}/promote`           | Promote to production (`409` if not approved)|
 
@@ -148,7 +148,8 @@ the implementation are checked in:
 | `docs/prompts/01-project-scaffolding.md` | Pre-built scaffold (venv, FastAPI, ruff, `/health`) |
 | `docs/prompts/02a-mvp-core.md` | Core MVP: create / retrieve / evaluate / promote + guard |
 | `docs/prompts/02b-doc-update.md` | Follow-on: doc update path + evaluation reset |
-| `docs/notes/` | Session notes — requirements Q&A, state machine, named tradeoffs |
+| `docs/notes/geico-ai-coding-interview-07212026.md` | Session notes — requirements Q&A, state machine, named tradeoffs |
+| `docs/notes/post-interview-hardening-plan.md` | The follow-up conformance pass, and why each hole was closed or deferred |
 
 ## Current Limitations
 
@@ -168,6 +169,8 @@ Deliberate MVP tradeoffs, not oversights:
 - **Editing a promoted system's doc is not blocked**, so an `IN-PRODUCTION`
   system can end up with a `NOT-EVALUATED` doc. The fix is doc versioning, with
   the approved revision pinned to the release, rather than a guard on the edit.
-- **Double-promote is unspecified.** It currently succeeds idempotently.
+  Pinned by `test_editing_doc_after_promotion_leaves_stale_production_system`.
+- **Double-promote succeeds idempotently** (`200`), rather than returning a
+  conflict. Pinned by `test_promote_is_idempotent_when_already_in_production`.
 - No database, migrations, or Docker. `services/` and `repositories/` remain
   empty scaffolding.

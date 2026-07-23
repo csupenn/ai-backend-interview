@@ -47,10 +47,31 @@ def test_get_system_returns_created_system() -> None:
     assert response.json() == created
 
 
-def test_get_unknown_system_returns_404() -> None:
-    response = client.get("/systems/does-not-exist")
+@pytest.mark.parametrize(
+    ("method", "path", "body"),
+    [
+        ("get", "/systems/does-not-exist", None),
+        ("put", "/systems/does-not-exist/design-doc", {"content": "anything"}),
+        ("post", "/systems/does-not-exist/design-doc/evaluate", None),
+        ("post", "/systems/does-not-exist/promote", None),
+    ],
+)
+def test_unknown_system_returns_404(method: str, path: str, body: dict | None) -> None:
+    response = client.request(method.upper(), path, json=body)
 
     assert response.status_code == 404
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"name": "", "design_doc_content": APPROVABLE_DOC},
+        {"name": "Billing", "design_doc_content": ""},
+        {"name": "Billing"},
+    ],
+)
+def test_create_system_rejects_invalid_payload(payload: dict) -> None:
+    assert client.post("/systems", json=payload).status_code == 422
 
 
 def test_evaluate_approves_substantial_doc() -> None:
@@ -104,7 +125,7 @@ def test_promote_blocked_after_rejection() -> None:
     assert response.status_code == 409
 
 
-def test_updating_doc_resets_evaluation() -> None:
+def test_updating_doc_resets_evaluation_and_reblocks_promotion() -> None:
     created = _create_system(content=APPROVABLE_DOC)
     client.post(f"/systems/{created['id']}/design-doc/evaluate")
 
@@ -114,4 +135,64 @@ def test_updating_doc_resets_evaluation() -> None:
     )
 
     assert response.status_code == 200
+    doc = response.json()["design_doc"]
+    assert doc["evaluation_status"] == "NOT-EVALUATED"
+    assert doc["evaluation_feedback"] is None
+    # A stale approval must not survive an edit.
+    assert client.post(f"/systems/{created['id']}/promote").status_code == 409
+
+
+def test_rejected_doc_can_be_updated_reevaluated_and_promoted() -> None:
+    """The full recovery path: rejection is not a dead end."""
+    created = _create_system(content=SHORT_DOC)
+    sid = created["id"]
+
+    assert (
+        client.post(f"/systems/{sid}/design-doc/evaluate").json()["design_doc"]["evaluation_status"]
+        == "REJECTED"
+    )
+    assert client.post(f"/systems/{sid}/promote").status_code == 409
+
+    client.put(f"/systems/{sid}/design-doc", json={"content": APPROVABLE_DOC})
+    approved = client.post(f"/systems/{sid}/design-doc/evaluate").json()
+    assert approved["design_doc"]["evaluation_status"] == "APPROVED"
+
+    response = client.post(f"/systems/{sid}/promote")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "IN-PRODUCTION"
+
+
+# --------------------------------------------------------------------------- #
+# Characterization tests: these pin *known limitations*, not desired behavior.
+# See docs/notes/post-interview-hardening-plan.md.
+# --------------------------------------------------------------------------- #
+def test_promote_is_idempotent_when_already_in_production() -> None:
+    created = _create_system(content=APPROVABLE_DOC)
+    client.post(f"/systems/{created['id']}/design-doc/evaluate")
+    client.post(f"/systems/{created['id']}/promote")
+
+    response = client.post(f"/systems/{created['id']}/promote")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "IN-PRODUCTION"
+
+
+def test_editing_doc_after_promotion_leaves_stale_production_system() -> None:
+    """Known limitation: a promoted system can end up with an unevaluated doc.
+
+    The real fix is design-doc versioning, pinning the approved revision to the
+    release, so an edit creates a new draft instead of invalidating production.
+    """
+    created = _create_system(content=APPROVABLE_DOC)
+    client.post(f"/systems/{created['id']}/design-doc/evaluate")
+    client.post(f"/systems/{created['id']}/promote")
+
+    response = client.put(
+        f"/systems/{created['id']}/design-doc",
+        json={"content": "Rewritten after the system was already promoted."},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "IN-PRODUCTION"
     assert response.json()["design_doc"]["evaluation_status"] == "NOT-EVALUATED"

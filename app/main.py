@@ -69,12 +69,13 @@ def _get_system_or_404(system_id: str) -> System:
     return system
 
 
-def _evaluate_design_doc(content: str) -> tuple[EvaluationStatus, str]:
-    """Stub 'LLM bot' evaluation.
+def evaluate_design_doc(content: str) -> tuple[EvaluationStatus, str]:
+    """Seam for the LLM bot that evaluates a design doc.
 
-    Deterministic heuristic that stands in for an LLM call so the flow is
-    testable without external dependencies: a doc with enough substance is
-    approved, otherwise it is rejected with feedback.
+    A real LLM or policy engine substitutes here; callers and the API contract
+    are unchanged. The implementation below is a deterministic stub so the flow
+    stays testable without external dependencies: a doc with enough substance
+    is approved, otherwise it is rejected with feedback.
     """
     if len(content.strip()) >= _MIN_APPROVED_DOC_LENGTH:
         return EvaluationStatus.APPROVED, "Design doc has sufficient detail."
@@ -112,9 +113,9 @@ def update_design_doc(system_id: str, request: UpdateDesignDocRequest) -> System
 
 
 @app.post("/systems/{system_id}/design-doc/evaluate", response_model=System)
-def evaluate_design_doc(system_id: str) -> System:
+def evaluate_system_design_doc(system_id: str) -> System:
     system = _get_system_or_404(system_id)
-    status, feedback = _evaluate_design_doc(system.design_doc.content)
+    status, feedback = evaluate_design_doc(system.design_doc.content)
     system.design_doc.evaluation_status = status
     system.design_doc.evaluation_feedback = feedback
     return system
